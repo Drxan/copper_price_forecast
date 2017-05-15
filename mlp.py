@@ -8,54 +8,16 @@
 @Description: 采用MLP进行铜价预测
 """
 
-import mysql.connector
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPRegressor
 from sklearn.metrics import explained_variance_score, mean_absolute_error, mean_squared_error, median_absolute_error, \
     r2_score
-
-
-def read_data():
-    """
-    连接MySQL数据库，并读取沪期铜主力的交易记录，以pandas.DataFrame格式返回
-    """
-    conn = None
-    try:
-        conn = mysql.connector.connect(host='mysqlhost', user='cvte', password='cvte@cvte', database='dataset',
-                                       use_unicode=True)
-        sql = "SELECT * FROM (SELECT * FROM shfe_daily WHERE product_id != '总计' AND product_name != '小计' ORDER BY volume_i) AS a WHERE a.product_name = '铜' AND a.price_date > '2015-01-05' GROUP BY a.price_date, a.product_id ORDER BY a.price_date;"
-        df = pd.read_sql(sql, conn)
-        tuples = list(zip(*[range(len(df)), df.price_date]))
-        index = pd.MultiIndex.from_tuples(tuples, names=['id', 'date'])
-        df.index = index
-        return df
-    except Exception as e:
-        print(e)
-    finally:
-        conn.close()
-
-
-def data_visualization(df):
-    """
-    原始数据可视化
-    """
-    x_values = df.price_date
-    y_values = df.close_price_i
-
-    plt.figure(figsize=(10, 6))
-    plt.title('history copper price')
-    plt.xlabel('')
-    plt.ylabel('history price(rmb/t)')
-
-    plt.plot(x_values, y_values, '-', label='history price')
-
-    plt.legend(loc='upper right')
-
-    plt.show()
+from common import read_co_data
 
 
 def feature_engineering(df):
@@ -66,13 +28,12 @@ def feature_engineering(df):
     df = pre_process(df).copy()
     # 特征构建
     df = feature_construction(df)
-    df.to_excel('df.xlsx')
     # 特征选择
     df = feature_selection(df)
     # 删除求历史均值带来的多余的样本(n_sample = max(get_history_days()))
     df = delete_redundant_samples(df)
     # 归一化处理
-    df = pp_min_max_scale(df, scaler)
+    df = pp_min_max_scale(df)
     return df
 
 
@@ -113,7 +74,7 @@ def delete_redundant_samples(df):
     return df.iloc[max(get_history_days()):]
 
 
-def pp_min_max_scale(df, scaler):
+def pp_min_max_scale(df):
     """
     特征值归一化处理
     """
@@ -121,7 +82,7 @@ def pp_min_max_scale(df, scaler):
     index = df.index
     columns = df.columns
     # 对特征进行归一化
-    feature_scaled = scaler.fit_transform(df.iloc[:, :-1])
+    feature_scaled = preprocessing.MinMaxScaler().fit_transform(df.iloc[:, :-1])
 
     target = np.array(df.iloc[:, -1])
     target.shape = (len(target), 1)
@@ -244,19 +205,44 @@ def get_selected_features():
     return features
 
 
-def model_evaluate(actual, predict, train_index, test_index):
+def model_evaluate(actual, predict):
     print("explained_variance_score: " + str(explained_variance_score(actual, predict)))
     print("mean_absolute_error: " + str(mean_absolute_error(actual, predict)))
     print("mean_squared_error: " + str(mean_squared_error(actual, predict)))
     print("median_absolute_error: " + str(median_absolute_error(actual, predict)))
     print("r2_score: " + str(r2_score(actual, predict)))
-    # diff = list(map(lambda x: x[0] - x[1], zip(actual, predict)))
-    # print("trend_error_rate" + str(len(list(filter(lambda x: x > 0, diff)))))
+
+    # 趋势正确性评估
+    calc_trend_accuracy(predict)
+
+
+def calc_trend_accuracy(predict):
+    """
+    趋势正确性评估，即判断当前收盘价与前一天收盘价对比上升/下降趋势是否正确
+    """
+    # 全局索引
+    global_index = fed_data.index
+    # 预测的样本总数
+    predict_sample_no = predict.size
+    # 预测结果趋势正确的样本总数
+    correct_trend_no = 0
+    for index, pre in predict.iterrows():
+        # 获取前一天记录的索引值
+        pre_index = global_index.get_values()[global_index.get_loc(index) - 1]
+        # 获取前一天的收盘价
+        v_pre = fed_data.loc[pre_index]['close_price_i']
+        # 获取当前的收盘价
+        v_target = fed_data.loc[index]['close_price_i']
+        # 当天收盘价的预测值
+        v_predict = pre[0]
+        if (v_target - v_pre) * (v_predict - v_pre) > 0:
+            correct_trend_no += 1
+    print("trend accuracy rate: " + str(correct_trend_no / predict_sample_no))
 
 
 def model_visualization(actual, predict):
     """
-    预测结果可视化 
+    预测结果可视化
     """
     x = range(1, len(actual) + 1)
 
@@ -276,29 +262,29 @@ def model_visualization(actual, predict):
 
 if __name__ == '__main__':
     # 读取原始数据
-    raw_data = read_data()
-    # 原始数据可视化
-    data_visualization(raw_data)
-    # 用于归一化的对象
-    scaler = preprocessing.MinMaxScaler()
+    raw_data = read_co_data()
     # 特征工程
     fed_data = feature_engineering(raw_data)
-    # features
+    # fed_data.to_excel('fed_data.xlsx')
+    # feature vector
     X = fed_data.take(list(range(fed_data.shape[1] - 1)), axis=1)
     # target
     y = np.ravel(fed_data.take([fed_data.shape[1] - 1], axis=1))
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
     print(X_train.shape, y_train.shape, X_test.shape, y_test.shape)
-
     # 定义一个BP神经网络
     reg = MLPRegressor(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(15,), random_state=1)
     # 训练
     reg.fit(X_train, y_train)
     # 预测
     y_pred = reg.predict(X_test)
+    y_pred = pd.DataFrame(y_pred)
+    y_pred.index = X_test.index
     # 将结果写入文件
-    pd.DataFrame(y_pred).to_excel('y_pred.xlsx')
+    # pd.DataFrame(y_pred).to_excel('y_pred.xlsx')
     # 模型评估
-    model_evaluate(y_test, y_pred, X_train.index, X_test.index)
+    model_evaluate(y_test, y_pred)
     # 可视化
     model_visualization(y_test, y_pred)
+
+    print(type(X), type(y), type(X_train), type(X_test), type(y_train), type(y_test), type(y_pred))
