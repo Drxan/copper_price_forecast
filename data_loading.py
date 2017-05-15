@@ -32,7 +32,30 @@ def read_co_data():
     """
     获取沪期铜主力历史交易数据
     """
-    sql = "SELECT * FROM (SELECT * FROM shfe_daily WHERE product_id != '总计' AND product_name != '小计' ORDER BY volume_i) AS a WHERE a.product_name = '铜' AND a.price_date > '2015-01-05' GROUP BY a.price_date, a.product_id ORDER BY a.price_date;"
+    sql = """
+        SELECT
+            *
+        FROM
+            (
+                SELECT
+                    *
+                FROM
+                    shfe_daily
+                WHERE
+                    product_id != '总计'
+                AND product_name != '小计'
+                ORDER BY
+                    volume_i
+            ) AS a
+        WHERE
+            a.product_name = '铜'
+        AND a.price_date > '2015-01-05'
+        GROUP BY
+            a.price_date,
+            a.product_id
+        ORDER BY
+            a.price_date;
+    """
     df = read_data_from_mysql_by_sql(sql)
     tuples = list(zip(*[range(len(df)), df.price_date]))
     # 添加数据索引

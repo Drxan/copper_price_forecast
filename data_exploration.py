@@ -8,7 +8,7 @@
 @Description: TODO
 """
 
-from common import read_co_data
+from data_loading import read_co_data
 import matplotlib.pyplot as plt
 
 
