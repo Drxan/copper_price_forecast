@@ -19,8 +19,19 @@ def model_evaluation(actual, predict, fed_data):
     print("median_absolute_error: " + str(median_absolute_error(actual, predict)))
     print("r2_score: " + str(r2_score(actual, predict)))
 
-    # 趋势正确性评估
-    _calc_trend_accuracy(predict, fed_data)
+    # 趋势正确性评估（价格预测准确率高不等价于趋势预测正确率高，取消该指标）
+    # _calc_trend_accuracy(predict, fed_data)
+
+    # 平均相对误差（Mean Relative Error）
+    _calc_mre(actual, predict)
+
+
+def _calc_mre(actual, predict):
+    """
+    计算平均相对误差（Mean Relative Error）
+    """
+    print("sum relative error: " + str(((actual - predict) / predict).sum().values))
+    print("mean relative error: " + str(((actual - predict) / predict).mean().values))
 
 
 def _calc_trend_accuracy(predict, fed_data):

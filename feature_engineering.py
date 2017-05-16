@@ -24,8 +24,9 @@ def feature_engineering(df):
     df = _feature_construction(df)
     # 特征选择
     df = _feature_selection(df)
-    # 删除求历史均值带来的多余的样本(n_sample = max(get_history_days()))
+    # 删除多余的历史序列(n_sample = max(max(_get_history_statistic_days(), _get_history_days())))
     df = _delete_redundant_samples(df)
+    df.to_excel('df.xlsx')
     # 归一化处理
     df = _pp_min_max_scale(df)
     return df
@@ -47,7 +48,8 @@ def _feature_construction(df):
     特征构建
     """
     df = _fc_trend(df)
-    df = _fc_past_avg(df)
+    df = _fc_history_statistic(df)
+    df = _fc_history_series(df)
     return df
 
 
@@ -58,14 +60,17 @@ def _feature_selection(df):
     label_column = 'close_price_i'
     features = _get_selected_features()
     features.append(label_column)
+    print(len(features))
     return df[features]
 
 
 def _delete_redundant_samples(df):
     """
-    删除求历史均值带来的多余的样本(n_sample = max(get_history_days()))
+    删除多余的历史序列(n_sample = max(max(_get_history_statistic_days(), _get_history_days())))
     """
-    return df.iloc[max(_get_history_days()):]
+    days = _get_history_statistic_days()
+    days.append(_get_history_days())
+    return df.iloc[max(days):]
 
 
 def _pp_min_max_scale(df):
@@ -109,26 +114,38 @@ def _fc_trend(df):
     """
     构建历史趋势特征
     """
-    history_days = _get_history_days()
-    df = _get_trend(df, history_days)
+    history_statistic_days = _get_history_statistic_days()
+    df = _get_trend(df, history_statistic_days)
     return df
 
 
-def _fc_past_avg(df):
+def _fc_history_statistic(df):
     """
     构建过去n天均值作为特征，一方面在特征中加入历史影响，另一方面避免用当天特征预测当天价格的情况
     """
-    history_days = _get_history_days()
-    df = _get_history_avg(df, history_days)
+    history_statistic_days = _get_history_statistic_days()
+    df = _get_history_avg(df, history_statistic_days)
     return df
+
+
+def _fc_history_series(df):
+    window_size = _get_history_days()
+    df = _get_history_series(df, window_size)
+    return df
+
+
+def _get_history_statistic_days():
+    """
+    获取历史数据统计的时间跨度（天/交易日）
+    """
+    return [1, 3]
 
 
 def _get_history_days():
     """
-    获取历史数据统计的时间跨度（天/交易日）
+    获取时间序列窗口天数（天 / 交易日）
     """
-    # return [1, 3, 5, 15]
-    return [1, 3]
+    return 5
 
 
 def _get_history_features():
@@ -159,13 +176,20 @@ def _get_common_features():
     return features
 
 
-def _get_trend(df, history_days):
+def _get_updown_features():
+    """
+    涨跌特征 
+    """
+    return ['zd1_chg']
+
+
+def _get_trend(df, history_statistic_days):
     """
     构建历史趋势信息
     """
-    updown_features = ['zd1_chg']
+    updown_features = _get_updown_features()
     for index, row in df.iterrows():
-        for day in history_days:
+        for day in history_statistic_days:
             if index[0] < day:
                 continue
             for feature in updown_features:
@@ -173,29 +197,50 @@ def _get_trend(df, history_days):
     return df
 
 
-def _get_history_avg(df, history_days):
+def _get_history_avg(df, history_statistic_days):
     """
-    构建包含历史统计信息特征
+    构建时间序列历史信息特征（统计类）
     """
     features = _get_history_features()
     for index, row in df.iterrows():
-        for day in history_days:
+        for day in history_statistic_days:
             if index[0] < day:
                 continue
             for feature in features:
-                df.set_value(index[0], feature + '_' + str(day), df[index[0] - day: index[0]][feature].mean())
+                df.set_value(index[0], feature + '_sta_' + str(day), df[index[0] - day: index[0]][feature].mean())
+    return df
+
+
+def _get_history_series(df, window_size):
+    """
+    构建时间序列历史信息特征（非统计类）
+    """
+    features = _get_history_features()
+    for index, row in df.iterrows():
+        if index[0] < window_size:
+            continue
+        for day in range(window_size):
+            for feature in features:
+                df.set_value(index[0], feature + '_his_' + str(day + 1), df.iloc[index[0] - day - 1][feature])
     return df
 
 
 def _get_selected_features():
-    # 原始特征
+    # 1.基础特征
     features = _get_common_features()
-    # 需考虑历史统计信息的特征
+
+    updown_features = _get_updown_features()
     history_features = _get_history_features()
-    # 历史统计特征时间跨度（天/交易日）
-    history_days = _get_history_days()
-    for day in history_days:
-        features.extend(list(map(lambda x: x + '_' + str(day), [feature for feature in history_features])))
+    history_statistic_days = _get_history_statistic_days()
+    for day in history_statistic_days:
+        # 2.历史趋势特征
+        features.extend(list(map(lambda x: x + '_trend_' + str(day), [feature for feature in updown_features])))
+        # 3.历史统计类特征
+        features.extend(list(map(lambda x: x + '_sta_' + str(day), [feature for feature in history_features])))
+    # 4.历史序列类特征
+    window_size = _get_history_days()
+    for day in range(window_size):
+        features.extend(list(map(lambda x: x + '_his_' + str(day + 1), [feature for feature in history_features])))
     return features
 
 

@@ -36,8 +36,12 @@ if __name__ == '__main__':
     reg.fit(X_train, y_train)
     # 预测
     y_pred = reg.predict(X_test)
+
     y_pred = pd.DataFrame(y_pred)
     y_pred.index = X_test.index
+
+    y_test = pd.DataFrame(y_test)
+    y_test.index = X_test.index
     # 将结果写入文件
     # pd.DataFrame(y_pred).to_excel('y_pred.xlsx')
     # 模型评估
